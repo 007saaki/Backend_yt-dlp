@@ -1,13 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-from bs4 import BeautifulSoup
 import re
 from pydantic import BaseModel
 
 app = FastAPI()
 
-# CORS configured for your Netlify frontend
+# CORS configured for your Netlify frontend connection
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +20,7 @@ class DownloadRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "Premium 100% Raw Uncompressed Engine is Live!"}
+    return {"message": "Premium Raw Uncompressed Engine is Live!"}
 
 @app.post("/fetch_data")
 def fetch_data(request: DownloadRequest):
@@ -39,7 +38,7 @@ def fetch_data(request: DownloadRequest):
         }
         payload = {
             "url": tiktok_url,
-            "videoQuality": "max", # Forces the absolute maximum quality/bitrate available
+            "videoQuality": "max",  # Forces maximum available quality/bitrate
             "filenamePattern": "basic"
         }
         response = requests.post(cobalt_url, json=payload, headers=headers, timeout=12)
@@ -53,29 +52,22 @@ def fetch_data(request: DownloadRequest):
                     "thumbnail": ""
                 }
     except Exception as e:
-        print(f"Engine 1 (Cobalt) failed, switching to backup... Error: {e}")
+        print(f"Engine 1 (Cobalt) skipped: {e}")
 
-    # ENGINE 2: DIRECT SSSTIK.IO SCRAPER (Extracts the exact same 10MB+ file from ssstik)
+    # ENGINE 2: DIRECT SSSTIK.IO SCRAPER (Pure Regex Extraction - Avoids Missing Library Crash)
     try:
         session = requests.Session()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         
-        # Get the latest token from ssstik home page
+        # Pull page tokens
         home_res = session.get("https://ssstik.io/en", headers=headers, timeout=10)
-        soup = BeautifulSoup(home_res.text, "html.parser")
-        
         tt_token = "0"
-        script_tags = soup.find_all("script")
-        for script in script_tags:
-            if script.text and "s_tt" in script.text:
-                match = re.search(r's_tt\s*=\s*["\']([^"\']+)["\']', script.text)
-                if match:
-                    tt_token = match.group(1)
-                    break
+        token_match = re.search(r's_tt\s*=\s*["\']([^"\']+)["\']', home_res.text)
+        if token_match:
+            tt_token = token_match.group(1)
         
-        # Bypass request directly to ssstik ajax router
         ajax_headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "HX-Request": "true",
@@ -91,28 +83,24 @@ def fetch_data(request: DownloadRequest):
         
         post_res = session.post("https://ssstik.io/abc?url=dl", data=payload, headers=ajax_headers, timeout=12)
         if post_res.status_code == 200:
-            post_soup = BeautifulSoup(post_res.text, "html.parser")
+            # Parse raw download urls via regex directly
+            links = re.findall(r'href=["\']([^"\']+)["\']', post_res.text)
+            hd_link = None
+            for link in links:
+                if "without_watermark" in link or "/abc/dl/" in link or "dl.ssstik" in link:
+                    hd_link = link
+                    break
             
-            hd_button = post_soup.find("a", class_="download_link without_watermark")
-            if not hd_button:
-                for a in post_soup.find_all("a", href=True):
-                    if "without watermark" in a.text.lower() or "download_link" in a.get("class", []):
-                        hd_button = a
-                        break
-            
-            if hd_button and hd_button.get("href"):
-                title_p = post_soup.find("p", class_="maintext")
-                title = title_p.text.strip() if title_p else "TikTok Premium Raw Video"
-                cover_img = post_soup.find("img", class_="result_author")
-                cover = cover_img.get("src") if cover_img else ""
-                
+            if hd_link:
+                title_match = re.search(r'<p class=["\']maintext["\']>(.*?)</p>', post_res.text)
+                title = title_match.group(1).strip() if title_match else "TikTok Premium Raw Video"
                 return {
-                    "url": hd_button["href"],
+                    "url": hd_link,
                     "title": title,
-                    "thumbnail": cover
+                    "thumbnail": ""
                 }
     except Exception as e:
-        print(f"Engine 2 (SSSTik Scraper) failed... Error: {e}")
+        print(f"Engine 2 (SSSTik Scraper) skipped: {e}")
 
     # ENGINE 3: HIGH-BITRATE FALLBACK BRIDGE
     try:

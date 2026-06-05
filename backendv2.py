@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-import re
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -20,7 +19,7 @@ class DownloadRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "Premium Uncompressed Raw CDN Engine is Live!"}
+    return {"message": "Premium Uncompressed Master HD Engine is Live!"}
 
 @app.post("/fetch_data")
 def fetch_data(request: DownloadRequest):
@@ -28,60 +27,45 @@ def fetch_data(request: DownloadRequest):
     if not tiktok_url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    # ENGINE 1: DIRECT SSSTIK RAW CDN LINK EXTRACTOR (Pulls the exact 10MB+ tokcdn/tiktokcdn link)
-    try:
-        session = requests.Session()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        }
-        
-        # Step 1: Fetch ssstik homepage to grab the dynamic security token
-        home_res = session.get("https://ssstik.io/en", headers=headers, timeout=10)
-        tt_token = "0"
-        token_match = re.search(r's_tt\s*=\s*["\']([^"\']+)["\']', home_res.text)
-        if token_match:
-            tt_token = token_match.group(1)
-        
-        # Step 2: Send AJAX request exactly like ssstik frontend does
-        ajax_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "HX-Request": "true",
-            "HX-Trigger": "_tt-form",
-            "HX-Target": "target",
-            "HX-Current-URL": "https://ssstik.io/en"
-        }
-        payload = {
-            "id": tiktok_url,
-            "locale": "en",
-            "tt": tt_token
-        }
-        
-        post_res = session.post("https://ssstik.io/abc?url=dl", data=payload, headers=ajax_headers, timeout=12)
-        if post_res.status_code == 200:
-            # Step 3: Extract all links from the response using Regex
-            raw_links = re.findall(r'href=["\'](https?://[^"\']+)["\']', post_res.text)
-            
-            hd_cdn_link = None
-            # Prioritize the exact raw server links (tokcdn, tiktokcdn or direct ssstik download routes)
-            for link in raw_links:
-                if "tokcdn" in link or "tiktokcdn" in link or "/abc/dl/" in link or "dl.ssstik" in link:
-                    hd_cdn_link = link
-                    break
-            
-            if hd_cdn_link:
-                # Extract Title if available
-                title_match = re.search(r'<p class=["\']maintext["\']>(.*?)</p>', post_res.text)
-                video_title = title_match.group(1).strip() if title_match else "TikTok Premium Raw HD Video"
-                
-                return {
-                    "url": hd_cdn_link,
-                    "title": video_title,
-                    "thumbnail": ""
-                }
-    except Exception as e:
-        print(f"Engine 1 (Direct CDN Scraper) skipped: {e}")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Referer": "https://lovetik.com/"
+    }
 
-    # ENGINE 2: HIGH-BITRATE BACKUP BRIDGE (In case Engine 1 has a connection timeout)
+    # ENGINE 1: LOVETIK UNCOMPRESSED HD EXTRACTOR (Pulls the exact 10MB+ Master Asset File)
+    try:
+        api_url = "https://lovetik.com/api/ajax/search"
+        payload = {"query": tiktok_url}
+        
+        response = requests.post(api_url, data=payload, headers=headers, timeout=12)
+        if response.status_code == 200:
+            res_data = response.json()
+            
+            if res_data.get("status") == "ok":
+                links = res_data.get("links", [])
+                hd_link = None
+                
+                # First, try to grab the absolute highest quality HD option available
+                for link in links:
+                    if "hd" in link.get("t", "").lower():
+                        hd_link = link.get("a")
+                        break
+                
+                # If separate HD tag isn't found, pick the main watermark-less master stream
+                if not hd_link and links:
+                    hd_link = links[0].get("a")
+                
+                if hd_link:
+                    return {
+                        "url": hd_link,
+                        "title": res_data.get("title", "TikTok Premium Master HD Video"),
+                        "thumbnail": res_data.get("cover", "")
+                    }
+    except Exception as e:
+        print(f"Engine 1 failed, trying backup engine... Error: {e}")
+
+    # ENGINE 2: TIKWM PREMIUM HIGH-BITRATE BRIDGE (FALLBACK)
     try:
         fallback_url = "https://tikwm.com/api/"
         response = requests.post(fallback_url, data={"url": tiktok_url, "hd": 1}, timeout=10)
@@ -99,7 +83,7 @@ def fetch_data(request: DownloadRequest):
                         "thumbnail": video_info.get("cover", "")
                     }
     except Exception as e:
-        print(f"Engine 2 fallback failed: {e}")
+        print(f"Engine 2 failed: {e}")
 
     raise HTTPException(status_code=404, detail="Unable to retrieve original high-bitrate video asset.")
 
